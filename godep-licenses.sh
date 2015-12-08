@@ -160,7 +160,6 @@ function pkg-file-license() {
   cat "${REPO_PATH}/Godeps/Godeps.json" | "${JQ}" -r ".Deps[].ImportPath" | sort -f |
     while read PACKAGE; do
       local P="${PACKAGE}"
-      #echo "${P}"
       local F=""
       local L="NONE"
       while [ "${P}" != "." ]; do
@@ -203,9 +202,9 @@ function pkg-file-license() {
 function print-csv-body() {
   local PREV_LICENSE_FILE=""
   pkg-file-license | while read LINE; do
-    local PKG="$(echo "${LINE}" | sed 's/\(.*\),.*,.*/\1/')"
-    local LICENSE_FILE="$(echo "${LINE}" | sed 's/.*,\(.*\),.*/\1/')"
-    local LICENSE="$(echo "${LINE}" | sed 's/.*,.*,\(.*\)/\1/')"
+    local PKG="$(echo "${LINE}" | cut -d',' -f1)"
+    local LICENSE_FILE="$(echo "${LINE}" | cut -d',' -f2)"
+    local LICENSE="$(echo "${LINE}" | cut -d',' -f3)"
     if [ "${LICENSE_FILE}" == "UNKNOWN" ]; then
       echo "${PKG},${LICENSE}"
     elif [ "${LICENSE_FILE}" != "${PREV_LICENSE_FILE}" ]; then
