@@ -18,8 +18,8 @@ set -o pipefail
 readonly PROGNAME=$(basename $0)
 
 # American and UK spelling
-readonly LICENSE_FILES="LICENSE LICENSE.txt LICENSE.md LICENCE LICENCE.txt LICENCE.md"
-readonly README_FILES="README README.txt README.md"
+readonly LICENSE_FILE_PATTERN="licen[sc]e*"
+readonly README_FILE_PATTERN="readme*"
 readonly GODEP_SRC="Godeps/_workspace/src"
 
 # default to the current directory
@@ -128,20 +128,23 @@ function parse-args() {
 
 function license-file() {
   local PKG="${1}"
-  local L=""
-  local R=""
-  for L in ${LICENSE_FILES}; do
-    if [ -f "${REPO_PATH}/${GODEP_SRC}/${PKG}/${L}" ]; then
-      echo "${GODEP_SRC}/${PKG}/${L}"
-      return
-    fi
-  done
-  for R in ${README_FILES}; do
-    if [ -f "${REPO_PATH}/${GODEP_SRC}/${PKG}/${R}" ]; then
-      echo "${GODEP_SRC}/${PKG}/${R}"
-      return
-    fi
-  done
+  pushd "${REPO_PATH}" > /dev/null
+
+  local license="$(find "${GODEP_SRC}/${PKG}" -xdev -follow -maxdepth 1 -type f -iname "${LICENSE_FILE_PATTERN}" | head -1)"
+  if [ -n "${license}" ]; then
+    echo "${license}"
+    echo "Found: ${license}" >&2
+    return
+  fi
+
+  local readme="$(find "${GODEP_SRC}/${PKG}" -xdev -follow -maxdepth 1 -type f -iname "${README_FILE_PATTERN}" | head -1)"
+  if [ -n "${readme}" ]; then
+    echo "${readme}"
+    echo "Found: ${readme}" >&2
+    return
+  fi
+
+  popd > /dev/null
 }
 
 function license() {
@@ -164,20 +167,22 @@ function pkg-file-license() {
       local L="NONE"
       while [ "${P}" != "." ]; do
         # check for packages with hard-coded exceptions
-        if [ ! -z "${EXEMPTIONS["${P}"]:-}" ]; then
+        if [ -n "${EXEMPTIONS["${P}"]:-}" ]; then
           L="${EXEMPTIONS["${P}"]}"
           echo "${PACKAGE},${P}/EXEMPTION,${L}"
+          echo "Exemption: ${P} -> ${L}" >&2
           break
         fi
         F="$(license-file "${P}")"
-        if [ ! -z "${F}" ] && [ -f "${REPO_PATH}/${F}" ]; then
+        if [ -n "${F}" ]; then
           L="$(license "${REPO_PATH}/${F}")"
           if [ "${L}" != "NONE" ]; then
             echo "${PACKAGE},${F},${L}"
+            echo "License: ${F} -> ${L}" >&2
             break
           fi
         fi
-        P=$(dirname "${P}")
+        P="$(dirname "${P}")"
       done
       if [ "${L}" != "NONE" ]; then
         continue
@@ -188,11 +193,13 @@ function pkg-file-license() {
           if [ "${LL}" != "NONE" ] && [ "${LL}" != "${L}" ]; then
             L="${LL}"
             echo "${GO_FILE},${L}"
+            echo "License: ${GO_FILE} -> ${L}" >&2
           fi
         done
       )
       if [ -z "${FILE_LICENSE}" ]; then
         FILE_LICENSE="UNKNOWN,UNKNOWN"
+        echo "License: ${PACKAGE} -> UNKNOWN" >&2
       fi
       echo "${PACKAGE},${FILE_LICENSE}"
     done
@@ -200,19 +207,21 @@ function pkg-file-license() {
 
 # de-dupes pkg-file-license based on license file
 function print-csv-body() {
-  local PREV_LICENSE_FILE=""
+  declare -A PKG_LICENSE_MAP
   pkg-file-license | while read LINE; do
     local PKG="$(echo "${LINE}" | cut -d',' -f1)"
     local LICENSE_FILE="$(echo "${LINE}" | cut -d',' -f2)"
     local LICENSE="$(echo "${LINE}" | cut -d',' -f3)"
     if [ "${LICENSE_FILE}" == "UNKNOWN" ]; then
       echo "${PKG},${LICENSE}"
-    elif [ "${LICENSE_FILE}" != "${PREV_LICENSE_FILE}" ]; then
+    else
       PKG="$(dirname "${LICENSE_FILE}")"
       PKG="${PKG#${GODEP_SRC}/}" # strip prefix
-      echo "${PKG},${LICENSE}"
+      if [ -z "${PKG_LICENSE_MAP["${PKG}"]:-}" ]; then
+        echo "${PKG},${LICENSE}"
+        PKG_LICENSE_MAP["${PKG}"]="${LICENSE}"
+      fi
     fi
-    PREV_LICENSE_FILE="${LICENSE_FILE}"
   done
 }
 
